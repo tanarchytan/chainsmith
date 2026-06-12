@@ -72,13 +72,20 @@ function render(report) {
 
   // Result + client-side bundle download
   if (report.fixable) {
-    line("RESULT: FIXABLE — corrected bundle (leaf + intermediate, root excluded)", "ok");
+    const okAlready = report.grade === "OK";
+    const fname = okAlready ? "fullchain.pem" : "fullchain-fixed.pem";
+    line(
+      okAlready
+        ? "RESULT: OK — chain is correctly configured, nothing to fix"
+        : "RESULT: FIXABLE — corrected bundle (leaf + intermediate, root excluded)",
+      "ok",
+    );
     const blob = new Blob([report.chainPem], { type: "application/x-pem-file" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "fullchain-fixed.pem";
+    a.download = fname;
     a.className = "dl";
-    a.textContent = "⤓ download fullchain-fixed.pem";
+    a.textContent = `⤓ download ${fname}`;
     out.appendChild(a);
   } else {
     line("RESULT: CANNOT FIX — see ERROR findings above", "err");
