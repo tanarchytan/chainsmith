@@ -38,6 +38,18 @@ npm test             # offline self-test; `node test.mjs <host>` for a live audi
 
 ## Deploy
 
+**Recommended — Cloudflare Workers Builds (Git integration, no secrets):**
+Dashboard → Workers & Pages → Create → Import `tanarchytan/chainsmith`, then set:
+
+| Field | Value |
+|---|---|
+| Root directory | `worker` |
+| Build command | `npm run build` |
+| Deploy command | `npx wrangler deploy` |
+
+Cloudflare auto-installs deps (incl. the wrangler version pinned in `package.json`), builds `public/app.js`, and deploys on every push to `main`. No API token needed.
+
+**Or manually:**
 ```bash
 npx wrangler login
 npm run deploy       # builds public/app.js, then wrangler deploy
