@@ -61,6 +61,17 @@ The output bundle is `leaf + intermediate(s)`, **root excluded** (the standard s
 2. Build a candidate intermediate pool from the **input certs** *plus* everything reachable by walking **AIA CA-Issuers** URLs.
 3. Link leaf → root, at each hop preferring a candidate that is **not revoked** and **not expired** — so a revoked cert always loses to its valid same-key reissue.
 
+## Example — a host serving a revoked intermediate
+
+```
+python cert-check.py --fix logius.nl --check
+```
+
+Grades **ERROR**, lists the corrected chain, and — under **SERVED — NOT USED** —
+shows the exact revoked intermediate the server is still sending (so you know
+what to replace), then offers the corrected bundle. (Snapshot: `logius.nl` was
+serving the revoked intermediate at the time of writing; a fixed host grades OK.)
+
 ## Verifying a generated bundle
 
 Proof a fix is real, using openssl with full CRL checking against the issuer's CRLs:
