@@ -44,7 +44,7 @@ import html as html_mod
 import requests
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import padding, ec, ed25519, ed448, rsa
 from cryptography.x509.oid import ExtensionOID, AuthorityInformationAccessOID
 
 HTTP_TIMEOUT = 7
@@ -157,21 +157,30 @@ def ca_issuer_urls(cert):
 
 
 def verify_signed_by(cert, issuer):
-    """True if issuer's key signed cert. Tries PKCS1v15 then PSS."""
+    """True if issuer's key signed cert. Handles RSA (PKCS1v15/PSS), ECDSA, EdDSA."""
     pub = issuer.public_key()
-    for build in (
-        lambda: pub.verify(cert.signature, cert.tbs_certificate_bytes,
-                           padding.PKCS1v15(), cert.signature_hash_algorithm),
-        lambda: pub.verify(cert.signature, cert.tbs_certificate_bytes,
-                           padding.PSS(mgf=padding.MGF1(cert.signature_hash_algorithm),
-                                       salt_length=padding.PSS.AUTO),
-                           cert.signature_hash_algorithm),
-    ):
-        try:
-            build()
+    data = cert.tbs_certificate_bytes
+    try:
+        if isinstance(pub, rsa.RSAPublicKey):
+            for pad in (
+                padding.PKCS1v15(),
+                padding.PSS(mgf=padding.MGF1(cert.signature_hash_algorithm),
+                            salt_length=padding.PSS.AUTO),
+            ):
+                try:
+                    pub.verify(cert.signature, data, pad, cert.signature_hash_algorithm)
+                    return True
+                except Exception:
+                    continue
+            return False
+        if isinstance(pub, ec.EllipticCurvePublicKey):
+            pub.verify(cert.signature, data, ec.ECDSA(cert.signature_hash_algorithm))
             return True
-        except Exception:
-            continue
+        if isinstance(pub, (ed25519.Ed25519PublicKey, ed448.Ed448PublicKey)):
+            pub.verify(cert.signature, data)  # EdDSA takes no hash/padding
+            return True
+    except Exception:
+        return False
     return False
 
 
