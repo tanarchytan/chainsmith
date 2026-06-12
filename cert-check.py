@@ -49,6 +49,7 @@ from cryptography.x509.oid import ExtensionOID, AuthorityInformationAccessOID
 
 HTTP_TIMEOUT = 7
 MAX_CHAIN = 8
+EXPIRY_WARN_DAYS = 30
 PEM = serialization.Encoding.PEM
 DER = serialization.Encoding.DER
 
@@ -339,12 +340,15 @@ def evaluate(leaf, observed):
 
     report = {
         "chain": chain,
-        "input_issues": [],
         "certs": [],
+        "findings": [],
         "swaps": [],
         "linkage_ok": True,
         "fatal": [],
     }
+
+    def add(level, text):
+        report["findings"].append({"level": level, "text": text})
 
     if observed:
         non_root = [c for c in observed if not is_self_signed(c)]
@@ -353,21 +357,20 @@ def evaluate(leaf, observed):
         correct_inter = [c for c in chain[1:] if not is_self_signed(c)]
 
         if len(observed) == 1:
-            report["input_issues"].append("server sends leaf only (incomplete chain)")
+            add("warn", "Server sends the leaf only — clients without the "
+                        "intermediate cached will fail. (incomplete chain)")
         if any(fingerprint(c) not in obs_fps for c in correct_inter):
-            report["input_issues"].append(
-                "incomplete: correct intermediate is not sent by the server")
+            add("warn", "Incomplete: the server does not send the correct intermediate.")
         for c in observed:
             fp = fingerprint(c)
             if fp == fingerprint(leaf):
                 continue
             if is_self_signed(c):
-                report["input_issues"].append(
-                    f"contains anchor: server sends root {c.subject.rfc4514_string()}")
+                add("note", f"Contains anchor: server sends the root "
+                            f"{c.subject.rfc4514_string()} (redundant; omit it).")
             elif fp not in chain_fps:
-                report["input_issues"].append(
-                    f"extra/mismatched cert: server sends "
-                    f"{c.subject.rfc4514_string()} which is not in the valid path")
+                add("note", f"Extra/mismatched cert: server sends "
+                            f"{c.subject.rfc4514_string()} which is not part of the valid path.")
 
         # Same-key reissue swap detection: a revoked observed intermediate
         # whose key (SKI) reappears as a different, valid serial in the chain.
@@ -387,10 +390,17 @@ def evaluate(leaf, observed):
                     "new_serial": hex(replacement.serial_number),
                     "ski": ski(o),
                 })
+                add("error", f"Served intermediate {o.subject.rfc4514_string()} "
+                             f"(serial {hex(o.serial_number)}) is REVOKED — replaced with "
+                             f"valid same-key reissue {hex(replacement.serial_number)}. "
+                             f"Server must redeploy.")
             else:
                 report["fatal"].append(
                     f"revoked intermediate {o.subject.rfc4514_string()} "
                     f"(serial {hex(o.serial_number)}) has no valid replacement")
+                add("error", f"Served intermediate {o.subject.rfc4514_string()} "
+                             f"(serial {hex(o.serial_number)}) is REVOKED and no valid "
+                             f"replacement is available.")
 
     for i, cert in enumerate(chain):
         issuer = chain[i + 1] if i + 1 < len(chain) else None
@@ -417,22 +427,61 @@ def evaluate(leaf, observed):
 
         # Fatal gates (root excluded -- it is the trust anchor, not shipped).
         if label != "ROOT":
+            subj = cert.subject.rfc4514_string()
             if revoked:
-                report["fatal"].append(
-                    f"{label} {cert.subject.rfc4514_string()} is REVOKED")
+                report["fatal"].append(f"{label} {subj} is REVOKED")
+                add("error", f"{label} {subj} is REVOKED.")
             if vstat != "OK":
-                report["fatal"].append(
-                    f"{label} {cert.subject.rfc4514_string()} is {vstat}")
+                report["fatal"].append(f"{label} {subj} is {vstat}")
+                add("error", f"{label} {subj} is {vstat}.")
+            elif (cert.not_valid_after_utc - now_utc()).days < EXPIRY_WARN_DAYS:
+                add("warn", f"{label} {subj} expires in "
+                            f"{(cert.not_valid_after_utc - now_utc()).days} days.")
             if sig is False:
                 report["fatal"].append(
                     f"{label} signature does not verify against its issuer")
+                add("error", f"{label} signature does not verify against its issuer.")
+
+    # Served-but-not-used certs: intermediates the server presented that are not
+    # in the corrected chain (revoked or mismatched). Shown so the operator sees
+    # exactly what to replace.
+    report["served_rejected"] = []
+    if observed:
+        built_fps = {fingerprint(c) for c in chain}
+        for c in observed:
+            f = fingerprint(c)
+            if f == fingerprint(leaf) or is_self_signed(c) or f in built_fps:
+                continue
+            issuer_cert = next((x for x in chain if x.subject == c.issuer), None)
+            crl = crl_status(c)
+            ocsp = ocsp_status(c, issuer_cert) if issuer_cert else ("UNKNOWN", "no issuer")
+            report["served_rejected"].append({
+                "label": "INT (served — not used)",
+                "subject": c.subject.rfc4514_string(),
+                "issuer": c.issuer.rfc4514_string(),
+                "not_before": c.not_valid_before_utc,
+                "not_after": c.not_valid_after_utc,
+                "fp": f, "serial": hex(c.serial_number),
+                "validity": validity_status(c),
+                "sig": verify_signed_by(c, issuer_cert) if issuer_cert else None,
+                "crl": crl, "ocsp": ocsp,
+                "reason": ("REVOKED" if (crl[0] == "REVOKED" or ocsp[0] == "REVOKED")
+                           else "not part of the valid path"),
+            })
 
     # Need at least leaf + one issuer to ship a usable chain.
     if len([c for c in chain if not is_self_signed(c)]) < 2 and not is_self_signed(leaf):
         report["fatal"].append(
             "could not complete chain (no intermediate found via input or AIA)")
+        add("error", "Could not complete the chain — no valid intermediate found "
+                     "via input or AIA.")
 
     report["fixable"] = not report["fatal"]
+    if all(f["level"] == "note" for f in report["findings"]) and report["fixable"]:
+        add("ok", "Chain is correctly configured.")
+    report["grade"] = ("ERROR" if any(f["level"] == "error" for f in report["findings"])
+                       else "WARN" if any(f["level"] == "warn" for f in report["findings"])
+                       else "OK")
     return report
 
 
@@ -444,18 +493,22 @@ def bundle_bytes(chain):
 # --------------------------------------------------------------------------- #
 # Text reporting (CLI)
 # --------------------------------------------------------------------------- #
+_LEVEL_TAG = {"error": "ERROR", "warn": "WARN ", "note": "NOTE ", "ok": "OK   "}
+
+
 def format_text(report):
     out = []
+    out.append(f"GRADE: {report['grade']}")
     chain = report["chain"]
     out.append(f"Chain: {len(chain)} certs "
                f"({sum(1 for c in chain if not is_self_signed(c))} shippable, "
                f"root excluded)")
-    for issue in report["input_issues"]:
-        out.append(f"  input: {issue}")
-    for s in report["swaps"]:
-        out.append(f"  SWAP: {s['subject']}")
-        out.append(f"        revoked {s['old_serial']} -> valid {s['new_serial']} "
-                   f"(same key SKI {s['ski']})")
+    out.append("")
+    out.append("FINDINGS")
+    if not report["findings"]:
+        out.append("  (none)")
+    for f in report["findings"]:
+        out.append(f"  {_LEVEL_TAG[f['level']]}  {f['text']}")
     for c in report["certs"]:
         out.append(f"\n--- {c['label']} ---")
         out.append(f"Subject: {c['subject']}")
@@ -468,14 +521,24 @@ def format_text(report):
             out.append(f"OCSP:    {c['ocsp'][0]} ({c['ocsp'][1]})")
         if c["sig"] is not None:
             out.append(f"Sig:     {'VALID' if c['sig'] else 'INVALID'}")
+    for c in report.get("served_rejected", []):
+        out.append(f"\n--- {c['label']} — {c['reason']} ---")
+        out.append(f"Subject: {c['subject']}")
+        out.append(f"Issuer:  {c['issuer']}")
+        out.append(f"Valid:   {c['not_before']} -> {c['not_after']}  [{c['validity']}]")
+        out.append(f"Serial:  {c['serial']}")
+        out.append(f"SHA256:  {c['fp']}")
+        out.append(f"CRL:     {c['crl'][0]} ({c['crl'][1]})")
+        out.append(f"OCSP:    {c['ocsp'][0]} ({c['ocsp'][1]})")
+        if c["sig"] is not None:
+            out.append(f"Sig:     {'VALID' if c['sig'] else 'INVALID'}")
     out.append("")
-    out.append(f"Linkage: {'OK' if report['linkage_ok'] else 'BROKEN'}")
-    if report["fatal"]:
-        out.append("RESULT:  CANNOT FIX")
-        for f in report["fatal"]:
-            out.append(f"  - {f}")
+    if not report["fixable"]:
+        out.append("RESULT:  CANNOT FIX — see ERROR findings above")
+    elif report["grade"] == "OK":
+        out.append("RESULT:  OK — chain is correctly configured, nothing to fix")
     else:
-        out.append("RESULT:  FIXABLE (bundle is valid + non-revoked)")
+        out.append("RESULT:  FIXABLE — corrected bundle (leaf + intermediate, root excluded)")
     return "\n".join(out)
 
 
@@ -504,6 +567,8 @@ a.dl{background:#10b981;color:#000;padding:6px 10px;border-radius:5px;text-decor
 
 _STATUS_CLASS = {"GOOD": "ok", "REVOKED": "bad", "VALID": "ok", "INVALID": "bad",
                  "OK": "ok", "EXPIRED": "bad", "NOT_YET_VALID": "bad"}
+_LEVEL_CLASS = {"error": "bad", "warn": "warn", "note": "ok", "ok": "ok"}
+_GRADE_CLASS = {"OK": "ok", "WARN": "warn", "ERROR": "bad"}
 
 
 def _span(status):
@@ -513,13 +578,13 @@ def _span(status):
 
 def format_html(report):
     out = []
+    out.append(f"GRADE: <span class={_GRADE_CLASS[report['grade']]}>{report['grade']}</span>")
     chain = report["chain"]
-    out.append(f"Chain: {len(chain)} certs")
-    for issue in report["input_issues"]:
-        out.append(f"<span class=warn>input: {html_mod.escape(issue)}</span>")
-    for s in report["swaps"]:
-        out.append(f"<span class=ok>SWAP: replaced revoked {s['old_serial']} "
-                   f"with valid {s['new_serial']} (same key)</span>")
+    out.append(f"Chain: {len(chain)} certs\n")
+    for f in report["findings"]:
+        tag = {"error": "ERROR", "warn": "WARN ", "note": "NOTE ", "ok": "OK   "}[f["level"]]
+        out.append(f"<span class={_LEVEL_CLASS[f['level']]}>{tag}  "
+                   f"{html_mod.escape(f['text'])}</span>")
     for c in report["certs"]:
         out.append(f"\n--- {c['label']} ---")
         out.append(f"Subject: {html_mod.escape(c['subject'])}")
@@ -531,16 +596,31 @@ def format_html(report):
             out.append(f"OCSP:    {_span(c['ocsp'][0])} {html_mod.escape(c['ocsp'][1])}")
         if c["sig"] is not None:
             out.append(f"Sig:     {_span('VALID' if c['sig'] else 'INVALID')}")
+    if report.get("served_rejected"):
+        out.append("\n<span class=bad>SERVED — NOT USED (replace these):</span>")
+        for c in report["served_rejected"]:
+            out.append(f"\n--- {html_mod.escape(c['label'])} — "
+                       f"<span class=bad>{html_mod.escape(c['reason'])}</span> ---")
+            out.append(f"Subject: {html_mod.escape(c['subject'])}")
+            out.append(f"Issuer:  {html_mod.escape(c['issuer'])}")
+            out.append(f"Valid:   {c['not_before']} -> {c['not_after']} {_span(c['validity'])}")
+            out.append(f"SHA256:  {c['fp']}")
+            out.append(f"CRL:     {_span(c['crl'][0])} {html_mod.escape(c['crl'][1])}")
+            out.append(f"OCSP:    {_span(c['ocsp'][0])} {html_mod.escape(c['ocsp'][1])}")
+            if c["sig"] is not None:
+                out.append(f"Sig:     {_span('VALID' if c['sig'] else 'INVALID')}")
     out.append("")
-    if report["fatal"]:
-        out.append("<span class=bad>CANNOT FIX:</span>")
-        for f in report["fatal"]:
-            out.append(f"  <span class=bad>{html_mod.escape(f)}</span>")
+    if not report["fixable"]:
+        out.append("<span class=bad>CANNOT FIX — see ERROR findings above</span>")
     else:
+        ok = report["grade"] == "OK"
+        fname = "fullchain.pem" if ok else "fullchain-fixed.pem"
+        title = ("Chain is correctly configured" if ok
+                 else "Corrected bundle (leaf + intermediate, root excluded)")
         b64 = base64.b64encode(bundle_bytes(chain)).decode()
-        out.append("<div class=fix><b>Fixed bundle (valid + non-revoked):</b><br>"
+        out.append(f"<div class=fix><b>{title}:</b><br>"
                    f"<a class=dl href='data:application/x-pem-file;base64,{b64}' "
-                   "download='fullchain-fixed.pem'>Download fullchain-fixed.pem</a></div>")
+                   f"download='{fname}'>Download {fname}</a></div>")
     return "\n".join(out)
 
 
@@ -616,6 +696,10 @@ def run_cli(args):
 
 
 def main():
+    try:  # ensure em-dashes etc. render on Windows cp1252 consoles
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
     p = argparse.ArgumentParser(description="Certificate bundle fixer + validator")
     src = p.add_mutually_exclusive_group(required=True)
     src.add_argument("--fix", metavar="HOST", help="fetch leaf from host:443")
