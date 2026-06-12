@@ -26,6 +26,7 @@ const OID = {
   CAISSUERS_METHOD: "1.3.6.1.5.5.7.48.2",
 };
 const MAX_CHAIN = 8;
+const EXPIRY_WARN_DAYS = 30;
 
 // --------------------------------------------------------------------------- //
 // Encoding helpers
@@ -357,6 +358,7 @@ export function createCore(transport) {
       }
     }
 
+    const now = new Date();
     for (let i = 0; i < chain.length; i++) {
       const cert = chain[i];
       const issuer = i + 1 < chain.length ? chain[i + 1] : null;
@@ -380,7 +382,38 @@ export function createCore(transport) {
       if (label !== "ROOT") {
         if (revoked) { report.fatal.push(`${label} ${subjectStr(cert)} is REVOKED`); add("error", `${label} ${subjectStr(cert)} is REVOKED.`); }
         if (vstat !== "OK") { report.fatal.push(`${label} is ${vstat}`); add("error", `${label} ${subjectStr(cert)} is ${vstat}.`); }
+        else {
+          const days = Math.floor((cert.notAfter.value - now) / 86400000);
+          if (days < EXPIRY_WARN_DAYS) add("warn", `${label} ${subjectStr(cert)} expires in ${days} days.`);
+        }
         if (sig === false) { report.fatal.push(`${label} bad signature`); add("error", `${label} signature does not verify against its issuer.`); }
+      }
+    }
+
+    // Served-but-not-used certs: intermediates the server presented that are not
+    // in the corrected chain (e.g. a revoked intermediate or a mismatched one).
+    // Shown so the operator can see exactly what to replace.
+    report.servedRejected = [];
+    if (observed && observed.length) {
+      const builtFps = new Set();
+      for (const c of chain) builtFps.add(await fp(c));
+      for (const c of observed) {
+        const f = await fp(c);
+        if (f === leafFp || isSelfSigned(c) || builtFps.has(f)) continue;
+        const issuerCert = chain.find((x) => x.subject.isEqual(c.issuer)) || null;
+        const crl = await crlStatus(c);
+        const ocsp = await ocspStatus(c, issuerCert);
+        report.servedRejected.push({
+          label: "INT (served — not used)",
+          subject: subjectStr(c), issuer: issuerStr(c),
+          notBefore: c.notBefore.value.toISOString().slice(0, 19) + "Z",
+          notAfter: c.notAfter.value.toISOString().slice(0, 19) + "Z",
+          fp: f, serial: serialHex(c),
+          validity: validityStatus(c),
+          sig: issuerCert ? await signedBy(c, issuerCert) : null,
+          crl, ocsp,
+          reason: crl[0] === "REVOKED" || ocsp[0] === "REVOKED" ? "REVOKED" : "not part of the valid path",
+        });
       }
     }
 

@@ -70,6 +70,23 @@ function render(report) {
   }
   line();
 
+  // Served-but-not-used certs (e.g. the revoked intermediate the server sends)
+  if (report.servedRejected && report.servedRejected.length) {
+    line("SERVED — NOT USED (replace these)", "head");
+    for (const c of report.servedRejected) {
+      line(`  --- ${c.label} — ${c.reason} ---`, "err");
+      line(`  Subject : ${c.subject}`);
+      line(`  Issuer  : ${c.issuer}`);
+      line(`  Valid   : ${c.notBefore} -> ${c.notAfter} ${stat(c.validity)}`, STAT_CLASS[c.validity]);
+      line(`  Serial  : 0x${c.serial}`, "muted");
+      line(`  SHA256  : ${c.fp}`, "muted");
+      line(`  CRL     : ${stat(c.crl[0])} ${c.crl[1]}`, STAT_CLASS[c.crl[0]]);
+      line(`  OCSP    : ${stat(c.ocsp[0])} ${c.ocsp[1]}`, STAT_CLASS[c.ocsp[0]]);
+      if (c.sig !== null) line(`  Sig     : ${c.sig ? "[VALID]" : "[INVALID]"}`, c.sig ? "ok" : "err");
+    }
+    line();
+  }
+
   // Result + client-side bundle download
   if (report.fixable) {
     const okAlready = report.grade === "OK";
