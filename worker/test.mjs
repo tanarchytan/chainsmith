@@ -112,5 +112,5 @@ for (const h of hosts) {
   }
 }
 if (!hosts.length)
-  console.log("\n(tip: `node test.mjs logius.nl` for an error case, or any host to audit)");
+  console.log("\n(tip: `node test.mjs <host>` to run a live audit)");
 process.exit(failed ? 1 : 0);

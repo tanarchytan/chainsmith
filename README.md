@@ -64,13 +64,13 @@ The output bundle is `leaf + intermediate(s)`, **root excluded** (the standard s
 ## Example — a host serving a revoked intermediate
 
 ```
-python cert-check.py --fix logius.nl --check
+python cert-check.py --fix <host> --check
 ```
 
-Grades **ERROR**, lists the corrected chain, and — under **SERVED — NOT USED** —
-shows the exact revoked intermediate the server is still sending (so you know
-what to replace), then offers the corrected bundle. (Snapshot: `logius.nl` was
-serving the revoked intermediate at the time of writing; a fixed host grades OK.)
+When a host is still serving a revoked intermediate, this grades **ERROR**, lists
+the corrected chain, and — under **SERVED — NOT USED** — shows the exact revoked
+intermediate the server is sending (so you know what to replace), then offers the
+corrected bundle. A correctly-configured host grades **OK**.
 
 ## Verifying a generated bundle
 
