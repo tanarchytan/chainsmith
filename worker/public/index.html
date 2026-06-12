@@ -38,6 +38,13 @@
     font: inherit; outline: none;
   }
   textarea:focus { border-color: var(--blue); }
+  #host {
+    width: 100%; box-sizing: border-box; background: #010409; color: var(--fg);
+    border: 1px solid var(--border); border-radius: 6px; padding: 10px;
+    font: inherit; outline: none;
+  }
+  #host:focus { border-color: var(--blue); }
+  .sep { color: var(--dim); text-align: center; font-size: 12px; margin: 8px 0; }
   .row { display: flex; gap: 10px; align-items: center; margin: 10px 0; }
   button {
     background: var(--green); color: #04260f; border: 0; border-radius: 6px;
@@ -77,18 +84,16 @@
     <span class="title">chainsmith — ~/certs</span>
   </div>
   <div class="screen">
-    <h1>$ chainsmith --fix &lt;chain&gt;</h1>
-    <p class="sub">Paste a PEM certificate or full chain. All parsing, chain-building, revocation
-      and signature checks run <b>in your browser</b>; only the certificate's own AIA/CRL/OCSP
-      fetches are relayed (CORS + http make direct browser calls impossible). Authoritative
-      sources only — the issuer's endpoints, never a third-party log. A simple SSL-Labs-style
-      audit + a corrected, non-revoked bundle.</p>
+    <h1>$ chainsmith --fix &lt;host | chain&gt;</h1>
+    <p class="sub">Audit a TLS certificate chain and get a corrected, non-revoked bundle — in your browser.</p>
+    <input id="host" placeholder="example.com — scan a live host" spellcheck="false" autocomplete="off">
+    <div class="sep">— or paste a chain —</div>
     <textarea id="pem" placeholder="-----BEGIN CERTIFICATE-----
 ...paste leaf or full chain, or drag a .crt/.pem here...
 -----END CERTIFICATE-----" spellcheck="false"></textarea>
     <div class="row">
       <button id="go">run audit</button>
-      <span class="hint">⌘/Ctrl+Enter · drag &amp; drop a file · live host scan stays in the Python CLI</span>
+      <span class="hint">⌘/Ctrl+Enter · drag &amp; drop a file</span>
     </div>
     <div id="out"><span class="ln muted">awaiting input…</span></div>
   </div>

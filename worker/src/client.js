@@ -19,6 +19,7 @@ const core = createCore(transport);
 
 const out = document.getElementById("out");
 const input = document.getElementById("pem");
+const hostInput = document.getElementById("host");
 
 function line(text = "", cls = "") {
   const div = document.createElement("div");
@@ -85,16 +86,37 @@ function render(report) {
 }
 
 async function run() {
+  const host = hostInput.value.trim();
   const text = input.value.trim();
-  if (!text) {
-    clear();
-    line("paste a PEM certificate or chain first", "warn");
+  clear();
+
+  let pem = text;
+  if (host) {
+    // Fetch the chain the host actually presents (raw TLS, done in the Worker).
+    line(`connecting to ${host}:443 …`, "muted");
+    try {
+      const r = await fetch(`/chain?host=${encodeURIComponent(host)}`, {
+        headers: { "X-Chainsmith": "1" },
+      });
+      if (!r.ok) {
+        clear();
+        line(`ERROR: ${await r.text()}`, "err");
+        return;
+      }
+      pem = await r.text();
+    } catch (e) {
+      clear();
+      line(`ERROR: ${e.message || e}`, "err");
+      return;
+    }
+  } else if (!text) {
+    line("enter a hostname or paste a chain", "warn");
     return;
   }
-  clear();
-  line("running checks (AIA / CRL / OCSP via CA, relayed) ...", "muted");
+
+  line("running checks (AIA / CRL / OCSP) …", "muted");
   try {
-    const report = await core.fixFromInput(new TextEncoder().encode(text));
+    const report = await core.fixFromInput(new TextEncoder().encode(pem));
     render(report);
   } catch (e) {
     clear();
@@ -115,4 +137,7 @@ input.addEventListener("drop", async (e) => {
 // Ctrl/Cmd+Enter to run
 input.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run();
+});
+hostInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") run();
 });

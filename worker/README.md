@@ -16,9 +16,10 @@ Same logic and verdicts as the Python `cert-check.py`; only the network layer is
 
 A corrected `fullchain-fixed.pem` download is offered whenever the chain is fixable (generated in-browser via a Blob).
 
-## Scope
+## Two ways in
 
-Paste/upload a PEM cert or chain. A browser (and a Worker) can't read the chain a remote server *presents*, so live host scanning stays in the Python CLI.
+- **Hostname** — the Worker opens a raw TCP socket and does a TLS 1.2 handshake by hand to read the chain the server *actually presents* (`/chain?host=`). `fetch()` can't expose a peer chain, so this is the only way to scan a live host server-side. It negotiates TLS 1.2 to read the cleartext Certificate message, so a rare TLS 1.3-**only** host can't be scanned this way — paste its chain instead.
+- **Paste/upload** a PEM cert or chain.
 
 ## Safe to deploy publicly
 
@@ -63,8 +64,9 @@ No bindings or secrets. `wrangler.toml` serves `public/` as static assets and ru
 public/index.html  console UI
 public/app.js       built client bundle (core + client + pkijs)  [gitignored, built]
 src/core.js         transport-injected fixer logic (shared by browser + node test)
-src/client.js       browser entry: /proxy transport + console rendering
-src/worker.js       Worker: /proxy relay (SSRF-guarded against private targets)
+src/client.js       browser entry: hostname (/chain) + paste, console rendering
+src/worker.js       Worker: /proxy relay + /chain host scan (SSRF + header guard)
+src/tls.js          raw TLS 1.2 client -> reads a host's presented chain
 build.mjs           esbuild bundler
 test.mjs            node test harness (offline self-test + optional live audit)
 ```

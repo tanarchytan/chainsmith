@@ -83,7 +83,7 @@ CLAUDE.md        notes for AI assistants working in this repo
 
 ### Web app — `worker/`
 
-A console-styled, SSL-Labs-lite web tool. **All cert logic runs client-side** (pkijs + WebCrypto); the Cloudflare Worker is only a same-origin `/proxy` relay for the certificate's `http(s)` AIA/CRL/OCSP endpoints (a browser can't reach them — CORS + mixed content), guarded against private/internal targets. Same verdicts as this CLI. Grades 🟢 OK / 🟡 WARN (leaf-only/incomplete) / 🔴 ERROR (revoked/expired/bad-sig), and offers a corrected `fullchain-fixed.pem` download generated in-browser. Paste/upload only — live host scanning stays in this CLI (neither a browser nor a Worker can read a remote server's presented chain). See `worker/README.md`.
+A console-styled, SSL-Labs-lite web tool. **All cert logic runs client-side** (pkijs + WebCrypto); the Cloudflare Worker is a thin same-origin relay: `/proxy` fetches the certificate's `http(s)` AIA/CRL/OCSP (a browser can't — CORS + mixed content), and `/chain` opens a raw TLS 1.2 socket to read the chain a host actually presents. Both are SSRF-guarded. Enter a **hostname** to scan a live host, or **paste** a chain. Same verdicts as this CLI: 🟢 OK / 🟡 WARN (leaf-only/incomplete) / 🔴 ERROR (revoked/expired/bad-sig), plus a corrected `fullchain-fixed.pem` download generated in-browser. See `worker/README.md`.
 
 ## Notes
 

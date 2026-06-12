@@ -14,6 +14,8 @@
 // -- pair with Cloudflare Access / rate limiting if you need that -- but it
 // stops drive-by browser abuse without depending on Origin/Referer, which
 // browsers omit on same-origin GETs.)
+import { getServedChainPEM } from "./tls.js";
+
 const MAX_BYTES = 5 * 1024 * 1024;
 const APP_HEADER = "x-chainsmith";
 
@@ -51,8 +53,26 @@ function isBlockedHost(host) {
 export default {
   async fetch(request) {
     const url = new URL(request.url);
+
+    // /chain?host= -> the chain a host actually presents (raw TLS, in-Worker).
+    if (url.pathname === "/chain") {
+      if (!originAllowed(request)) return new Response("forbidden", { status: 403 });
+      const raw = url.searchParams.get("host");
+      if (!raw) return new Response("missing host", { status: 400 });
+      const host = raw.trim().replace(/^https?:\/\//, "").split("/")[0].split(":")[0];
+      if (!host || isBlockedHost(host)) return new Response("forbidden target", { status: 403 });
+      try {
+        const pem = await getServedChainPEM(host);
+        return new Response(pem, {
+          headers: { "Content-Type": "application/x-pem-file", "Cache-Control": "no-store" },
+        });
+      } catch (e) {
+        return new Response(`chain fetch failed: ${e.message || e}`, { status: 502 });
+      }
+    }
+
     if (url.pathname !== "/proxy") {
-      // Not the relay -> static asset routing handles /, /app.js, etc.
+      // Not a relay route -> static asset routing handles /, /app.js, etc.
       return new Response("Not found", { status: 404 });
     }
     if (!originAllowed(request)) return new Response("forbidden", { status: 403 });
