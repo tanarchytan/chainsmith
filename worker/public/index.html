@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chainsmith — TLS certificate chain auditor &amp; bundle fixer</title>
+<style>
+  :root {
+    --bg: #0a0e14; --panel: #0d1117; --fg: #c9d1d9; --dim: #6e7681;
+    --green: #3fb950; --amber: #d29922; --red: #f85149; --blue: #58a6ff;
+    --border: #21262d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    font-size: 13px; line-height: 1.5;
+    padding: 24px; display: flex; justify-content: center;
+  }
+  .term { width: 100%; max-width: 1000px; }
+  .bar {
+    background: #161b22; border: 1px solid var(--border); border-bottom: none;
+    border-radius: 8px 8px 0 0; padding: 8px 14px; display: flex; align-items: center; gap: 8px;
+  }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot.r { background: #ff5f56; } .dot.y { background: #ffbd2e; } .dot.g { background: #27c93f; }
+  .bar .title { margin-left: 8px; color: var(--dim); }
+  .screen {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 0 0 8px 8px;
+    padding: 16px;
+  }
+  h1 { font-size: 14px; margin: 0 0 4px; color: var(--green); font-weight: 600; }
+  .sub { color: var(--dim); margin: 0 0 14px; }
+  .sub b { color: var(--amber); }
+  textarea {
+    width: 100%; height: 150px; resize: vertical; background: #010409; color: var(--fg);
+    border: 1px solid var(--border); border-radius: 6px; padding: 10px;
+    font: inherit; outline: none;
+  }
+  textarea:focus { border-color: var(--blue); }
+  .row { display: flex; gap: 10px; align-items: center; margin: 10px 0; }
+  button {
+    background: var(--green); color: #04260f; border: 0; border-radius: 6px;
+    padding: 9px 18px; font: inherit; font-weight: 700; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.08); }
+  .hint { color: var(--dim); }
+  #out {
+    margin-top: 14px; background: #010409; border: 1px solid var(--border);
+    border-radius: 6px; padding: 14px; min-height: 60px;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .ln { white-space: pre-wrap; }
+  .ln.head { color: var(--blue); font-weight: 600; }
+  .ln.muted { color: var(--dim); }
+  .ln.ok { color: var(--green); }
+  .ln.warn { color: var(--amber); }
+  .ln.err { color: var(--red); }
+  .ln.note { color: var(--blue); }
+  .ln.grade {
+    display: inline-block; font-weight: 800; font-size: 15px; letter-spacing: .04em;
+    padding: 2px 12px; border-radius: 5px; margin-bottom: 6px;
+  }
+  .ln.grade.ok { background: rgba(63,185,80,.15); color: var(--green); border: 1px solid var(--green); }
+  .ln.grade.warn { background: rgba(210,153,34,.15); color: var(--amber); border: 1px solid var(--amber); }
+  .ln.grade.err { background: rgba(248,81,73,.15); color: var(--red); border: 1px solid var(--red); }
+  a.dl {
+    display: inline-block; margin-top: 12px; background: var(--green); color: #04260f;
+    padding: 7px 14px; border-radius: 5px; text-decoration: none; font-weight: 700;
+  }
+</style>
+</head>
+<body>
+<div class="term">
+  <div class="bar">
+    <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+    <span class="title">chainsmith — ~/certs</span>
+  </div>
+  <div class="screen">
+    <h1>$ chainsmith --fix &lt;chain&gt;</h1>
+    <p class="sub">Paste a PEM certificate or full chain. All parsing, chain-building, revocation
+      and signature checks run <b>in your browser</b>; only the certificate's own AIA/CRL/OCSP
+      fetches are relayed (CORS + http make direct browser calls impossible). Authoritative
+      sources only — the issuer's endpoints, never a third-party log. A simple SSL-Labs-style
+      audit + a corrected, non-revoked bundle.</p>
+    <textarea id="pem" placeholder="-----BEGIN CERTIFICATE-----
+...paste leaf or full chain, or drag a .crt/.pem here...
+-----END CERTIFICATE-----" spellcheck="false"></textarea>
+    <div class="row">
+      <button id="go">run audit</button>
+      <span class="hint">⌘/Ctrl+Enter · drag &amp; drop a file · live host scan stays in the Python CLI</span>
+    </div>
+    <div id="out"><span class="ln muted">awaiting input…</span></div>
+  </div>
+</div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

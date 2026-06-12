@@ -1,0 +1,9 @@
+name = "chainsmith"
+main = "src/worker.js"
+compatibility_date = "2025-06-01"
+
+# Static client (UI + all cert logic, bundled into public/app.js) is served from
+# public/. The Worker only implements /proxy. Build public/app.js first:
+#   npm run build   (runs automatically via `npm run dev` / `npm run deploy`)
+[assets]
+directory = "./public"
