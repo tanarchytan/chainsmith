@@ -1,0 +1,18 @@
+# Node / Worker
+worker/node_modules/
+worker/.wrangler/
+worker/.dev.vars
+worker/public/app.js   # built in CI (npm run build)
+
+# Python
+__pycache__/
+*.pyc
+
+# Generated cert bundles / scratch
+*.crt
+*.pem
+_*
+
+# OS
+.DS_Store
+Thumbs.db
